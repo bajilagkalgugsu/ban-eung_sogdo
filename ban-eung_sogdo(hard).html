@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>중랑꿈축제 반응속도 챌린지</title>
+
+<script>
+/*
+==================================================
+설정 영역 (하드 모드 전용)
+
+[등급 기준]
+grade 안의 숫자는 "정확도 몇 % 이상이면 그 등급인가"입니다.
+정확도 = 명중한 표적 수 ÷ (전체 표적 수 + 빈 곳 클릭 수) × 100
+속도와 시간 조건은 등급에 쓰지 않습니다.
+(시작 화면의 기준표와 결과 문구는 이 숫자를 읽어서 자동으로 만들어집니다.)
+
+[표적 패턴]
+patterns의 각 항목이 두더지처럼 튀어나오는 방식 하나입니다.
+  delay   : 이전 표적이 사라진 뒤 다음 표적이 나오기까지 대기 시간 [최소, 최대] ms
+  visible : 표적이 화면에 머무는 시간 [최소, 최대] ms (지나면 놓친 것으로 처리)
+  fadeIn  : 표적이 서서히 나타나는 시간 ms (클수록 천천히 나타남)
+  weight  : 등장 확률 가중치 (클수록 자주 나옴)
+==================================================
+*/
+const CONFIG = {
+  targetCount: 10,   // 전체 표적 수
+  targetSize: 76,    // 표적 크기(px)
+
+  // 등급 기준: 정확도(%) 이상  ← 임시 값, 테스트 후 조정하세요
+  grade: {
+    S: 100,
+    A: 80,
+    B: 60
+  },
+
+  // 표적 등장 패턴
+  patterns: [
+    { name: "보통",       weight: 3, delay: [300, 700],   visible: [850, 1000],  fadeIn: 120 },
+    { name: "빠른 두더지", weight: 3, delay: [200, 600],   visible: [600, 700],   fadeIn: 100 },
+    { name: "번개",       weight: 2, delay: [800, 1500],  visible: [1000, 1000], fadeIn: 80  },
+    { name: "스르륵",     weight: 2, delay: [300, 700],   visible: [750, 850],   fadeIn: 500 },
+    { name: "초번개",     weight: 1, delay: [600, 1400],  visible: [300, 360],   fadeIn: 50  }
+  ],
+
+  // 섬광탄 (함정): 표적과 함께 나타나며, 누르면 화면 전체가 하얘진다.
+  //   chance       : 표적이 나올 때 섬광탄도 같이 나올 확률 (0~1)
+  //   maxCount     : 한 판에 나올 수 있는 섬광탄 최대 개수
+  //   size         : 섬광탄 크기(px)
+  //   returnBefore : 하얀 화면이 풀리기 시작하는 시점. 섬광탄 이후 처음 나오는
+  //                  표적이 사라지기 이 시간(ms) 전부터 화면이 돌아온다.
+  flash: {
+    chance: 0.35,
+    maxCount: 3,
+    size: 64,
+    returnBefore: 250
+  },
+
+  // 랭킹 저장 키 (이전 버전 기록과 섞이지 않도록 새 키 사용)
+  storageKey: "jungnangFestivalRankingHard"
+};
+</script>
+
+<style>
+:root {
+  --bg: #fff8e9;
+  --panel: #ffffff;
+  --text: #382b24;
+  --muted: #77685c;
+  --accent: #ffad42;
+  --green: #268653;
+  --red: #f15b54;
+  --line: #f0ddc4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(ellipse at top, #fff0cf, var(--bg));
+  color: var(--text);
+  font-family: Arial, "Malgun Gothic", sans-serif;
+  text-align: center;
+}
+
+button, input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid #e98a18;
+  outline-offset: 3px;
+}
+
+.page {
+  width: min(100%, 850px);
+  margin: 0 auto;
+  padding: 20px 16px 30px;
+}
+
+header {
+  padding: 10px 0 20px;
+}
+
+.event-name {
+  display: inline-block;
+  padding: 8px 15px;
+  border: 2px solid #f4d6a6;
+  border-radius: 999px;
+  background: #fffdf8;
+  color: #9b5c17;
+  font-weight: bold;
+}
+
+h1 {
+  margin: 17px 0 8px;
+  font-size: clamp(30px, 6vw, 48px);
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.panel {
+  padding: 24px 20px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 22px;
+  box-shadow: 0 8px 24px #89551b12;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.name-label {
+  display: block;
+  margin-bottom: 8px;
+  text-align: left;
+  font-weight: bold;
+}
+
+.name-input {
+  width: 100%;
+  padding: 14px;
+  margin-bottom: 16px;
+  border: 2px solid #e8d2b5;
+  border-radius: 12px;
+  background: #fffdf8;
+  font-size: 18px;
+}
+
+.primary-btn {
+  width: 100%;
+  min-height: 60px;
+  padding: 14px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--accent);
+  color: #482a0c;
+  font-size: 22px;
+  font-weight: 900;
+  box-shadow: 0 4px 0 #e18b26;
+}
+
+.primary-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #e18b26;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.grade-guide,
+.ranking-panel {
+  margin-top: 18px;
+  padding: 18px;
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  background: #fffdf8;
+  text-align: left;
+}
+
+.grade-guide h2,
+.ranking-panel h2 {
+  margin-top: 0;
+}
+
+.grade-row {
+  padding: 11px;
+  margin-top: 8px;
+  border-radius: 10px;
+  background: #fff4df;
+  line-height: 1.6;
+}
+
+.ranking-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ranking-heading span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ranking-list {
+  padding-left: 26px;
+}
+
+.ranking-list li {
+  padding: 8px 0;
+  overflow-wrap: anywhere;
+}
+
+.empty-ranking {
+  color: var(--muted);
+}
+
+.small-btn {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: var(--text);
+}
+
+.game-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.progress-track {
+  height: 10px;
+  margin-bottom: 15px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #f1e2cd;
+}
+
+.progress-bar {
+  width: 0%;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s;
+}
+
+.playfield {
+  position: relative;
+  width: 100%;
+  height: clamp(300px, 52vh, 460px);
+  min-height: 280px;
+  overflow: hidden;
+  border: 3px solid #e9c99d;
+  border-radius: 18px;
+  background-color: #fffaf0;
+  background-image:
+    linear-gradient(#e8d9c455 1px, transparent 1px),
+    linear-gradient(90deg, #e8d9c455 1px, transparent 1px);
+  background-size: 32px 32px;
+  touch-action: manipulation;
+  user-select: none;
+  transition: border-color 0.1s;
+}
+
+/* 표적을 놓쳤을 때 테두리가 잠깐 빨개진다. */
+.playfield.miss-flash {
+  border-color: var(--red);
+}
+
+.target {
+  position: absolute;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: var(--target-size, 76px);
+  height: var(--target-size, 76px);
+  padding: 0;
+  border: 5px solid white;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 5px #f15b5433, 0 4px 12px #b94a3733;
+  transform: translate(-50%, -50%);
+  animation: pop var(--fade-in, 120ms) ease-out;
+}
+
+.target::before {
+  content: "";
+  width: 35%;
+  height: 35%;
+  border-radius: 50%;
+  background: white;
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    scale: 0.7;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+/* 섬광탄: 빨간 표적과 헷갈리도록 주황색 */
+.flashbang {
+  position: absolute;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: var(--flash-size, 64px);
+  height: var(--flash-size, 64px);
+  padding: 0;
+  border: 5px solid white;
+  border-radius: 50%;
+  background: #ff8a1f;
+  box-shadow: 0 0 0 5px #ff8a1f55, 0 4px 12px #a8540f33;
+  font-size: 26px;
+  line-height: 1;
+  transform: translate(-50%, -50%);
+}
+
+/* 섬광탄이 터졌을 때 화면 전체를 덮는 하얀 막. 클릭은 그대로 통과한다. */
+.flash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #ffffff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.flash-overlay.on {
+  opacity: 1;
+  transition: none; /* 터질 때는 순간적으로 하얘진다. */
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.stat-card {
+  padding: 18px 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fffaf0;
+}
+
+.stat-label {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.stat-value {
+  color: var(--green);
+  font-size: clamp(25px, 5vw, 34px);
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.result-grade {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100px;
+  height: 100px;
+  margin: 5px 0 15px;
+  border: 5px solid var(--accent);
+  border-radius: 50%;
+  background: #fff5df;
+  color: #a85c0b;
+  font-size: 52px;
+  font-weight: 900;
+}
+
+.message {
+  padding: 16px;
+  border-radius: 12px;
+  background: #fff4df;
+  font-size: 16px;
+  line-height: 1.8;
+  text-align: left;
+  white-space: pre-line;
+}
+
+footer {
+  padding-top: 22px;
+  color: #948371;
+  font-size: 13px;
+}
+
+@media (max-width: 480px) {
+  .panel {
+    padding: 18px 13px;
+  }
+
+  .playfield {
+    height: 45vh;
+    min-height: 270px;
+  }
+
+  .grade-guide,
+  .ranking-panel {
+    padding: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+</head>
+
+<body>
+<!-- 섬광탄 효과용 하얀 막 -->
+<div id="flashOverlay" class="flash-overlay"></div>
+
+<div class="page">
+
+  <header>
+    <h1>반응속도 챌린지</h1>
+    <p class="subtitle">튀어나오는 표적을 놓치지 말고 맞혀라!</p>
+  </header>
+
+  <!-- 시작 화면 -->
+  <main id="startScreen">
+    <section class="panel">
+      <h2>준비됐나요?</h2>
+      <p class="subtitle">
+        빨간 표적이 두더지처럼 나타났다 빠르게 사라져요.<br>
+        사라지기 전에 클릭하거나 터치하세요.<br>
+        ⚠️ 주황색 번개(⚡) 섬광탄을 누르면 화면이 하얘져요. 조심하세요!
+      </p>
+
+      <label class="name-label" for="nickname">닉네임 (선택)</label>
+      <input
+        id="nickname"
+        class="name-input"
+        type="text"
+        maxlength="12"
+        placeholder="예: 반응속도왕"
+        autocomplete="off"
+      >
+
+      <button id="startButton" class="primary-btn" type="button">
+        게임 시작!
+      </button>
+
+      <p class="hint" id="startHint"></p>
+    </section>
+
+    <!-- 등급 기준표: CONFIG.grade 값을 읽어서 자동으로 채워진다. -->
+    <section id="gradeGuide" class="grade-guide">
+      <h2>🏅 등급 기준 (정확도)</h2>
+      <div id="gradeRows"></div>
+      <p class="hint">
+        정확도 = 명중한 표적 ÷ (전체 표적 + 빈 곳 클릭)<br>
+        표적을 놓치거나 빈 곳을 누르면 정확도가 내려가요.
+      </p>
+    </section>
+
+    <!-- 랭킹 -->
+    <section class="ranking-panel">
+      <div class="ranking-heading">
+        <h2>🏆 TOP 5 랭킹</h2>
+        <span>정확도 기준</span>
+      </div>
+      <ol id="startRanking" class="ranking-list"></ol>
+      <button class="small-btn" type="button" data-reset>랭킹 초기화</button>
+    </section>
+  </main>
+
+  <!-- 게임 화면 -->
+  <section id="gameScreen" class="hidden">
+    <div class="panel">
+      <div class="game-top">
+        <span id="gameCounter">표적 1 / 10</span>
+        <span id="missCounter">놓침 0 · 헛클릭 0</span>
+      </div>
+
+      <div class="progress-track">
+        <div id="progressBar" class="progress-bar"></div>
+      </div>
+
+      <p class="subtitle">나타나는 빨간 표적을 바로 누르세요!</p>
+      <div id="playfield" class="playfield"></div>
+
+      <p class="hint">명중: <strong id="hitCounter">0</strong>개</p>
+    </div>
+  </section>
+
+  <!-- 결과 화면 -->
+  <section id="resultScreen" class="hidden">
+    <div class="panel">
+      <div id="resultGrade" class="result-grade">A</div>
+      <p id="resultName" class="subtitle">참가자님의 결과</p>
+      <h2 id="resultTitle">좋은 도전이에요!</h2>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">정확도</div>
+          <div class="stat-value"><span id="accuracy">0</span>%</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-label">명중</div>
+          <div class="stat-value"><span id="finalHits">0</span>개</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-label">놓친 표적</div>
+          <div class="stat-value"><span id="finalMissed">0</span>개</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-label">헛클릭</div>
+          <div class="stat-value"><span id="finalWrong">0</span>회</div>
+        </div>
+      </div>
+
+      <p id="gradeExplanation" class="message"></p>
+
+      <p class="message">
+        현실형(R)은 도구와 기계, 직접 움직이며 문제를 해결하는 활동에 관심을 보이는 유형이에요.
+      </p>
+
+      <button id="retryButton" class="primary-btn" type="button">
+        다시 하기
+      </button>
+    </div>
+
+    <!-- 결과 화면 랭킹 -->
+    <section class="ranking-panel">
+      <div class="ranking-heading">
+        <h2>🏆 TOP 5 랭킹</h2>
+        <span>정확도 기준</span>
+      </div>
+      <ol id="resultRanking" class="ranking-list"></ol>
+      <button class="small-btn" type="button" data-reset>랭킹 초기화</button>
+    </section>
+  </section>
+
+  <footer>중랑꿈축제 · 반응속도 미니게임</footer>
+</div>
+
+<script>
+/*
+==================================================
+공통 변수와 화면 전환
+==================================================
+*/
+
+const startScreen = document.getElementById("startScreen");
+const gameScreen = document.getElementById("gameScreen");
+const resultScreen = document.getElementById("resultScreen");
+const nicknameInput = document.getElementById("nickname");
+const playfield = document.getElementById("playfield");
+
+let playerName = "참가자";
+let targetIndex = 0;      // 처리가 끝난 표적 수 (명중 + 놓침)
+let hits = 0;             // 명중 수
+let missedTargets = 0;    // 사라질 때까지 못 누른 표적 수
+let wrongClicks = 0;      // 빈 곳을 누른 횟수
+let reactionTimes = [];   // 명중한 표적의 반응 시간(ms), 랭킹 동점 처리용
+let targetShownAt = 0;
+let gameActive = false;
+
+let spawnTimer = null;    // 다음 표적을 띄울 타이머
+let hideTimer = null;     // 표적이 사라질 타이머
+let flashTimer = null;    // 놓쳤을 때 테두리 효과 타이머
+
+const flashOverlay = document.getElementById("flashOverlay");
+let flashActive = false;           // 지금 화면이 하얀 상태인지
+let flashReleaseScheduled = false; // 하얀 화면을 풀 시점을 이미 예약했는지
+let flashSpawned = 0;              // 이번 판에 나온 섬광탄 수
+let whiteTimer = null;             // 하얀 화면을 풀 타이머
+
+/* 화면을 전환할 때 기존 화면을 숨긴다. */
+function hideAllScreens() {
+  startScreen.classList.add("hidden");
+  gameScreen.classList.add("hidden");
+  resultScreen.classList.add("hidden");
+}
+
+/* 진행 중인 타이머를 모두 멈추고, 하얀 화면도 풀어 준다. */
+function stopTimers() {
+  clearTimeout(spawnTimer);
+  clearTimeout(hideTimer);
+  clearTimeout(flashTimer);
+  clearTimeout(whiteTimer);
+  spawnTimer = null;
+  hideTimer = null;
+  flashTimer = null;
+  whiteTimer = null;
+  releaseFlash();
+}
+
+/* 하얀 화면을 서서히 원래대로 돌린다. */
+function releaseFlash() {
+  flashOverlay.classList.remove("on");
+  flashActive = false;
+  flashReleaseScheduled = false;
+}
+
+/* 섬광탄을 눌렀을 때: 화면 전체를 순간적으로 하얗게 만든다. */
+function triggerFlash(bomb) {
+  if (!gameActive || flashActive) return;
+
+  flashActive = true;
+  flashReleaseScheduled = false;
+  bomb.remove();
+  flashOverlay.classList.add("on");
+}
+
+/*
+==================================================
+랭킹 (정확도 높은 순, 동점이면 평균 반응 시간이 빠른 순)
+==================================================
+*/
+
+/* 저장된 랭킹을 불러온다. */
+function loadRanking() {
+  try {
+    const saved = localStorage.getItem(CONFIG.storageKey);
+    if (!saved) return [];
+
+    const records = JSON.parse(saved);
+    if (!Array.isArray(records)) return [];
+
+    return records.filter(record =>
+      record &&
+      typeof record.name === "string" &&
+      Number.isFinite(record.accuracy) &&
+      Number.isFinite(record.hits) &&
+      Number.isFinite(record.average) &&
+      Number.isFinite(record.date)
+    );
+  } catch (error) {
+    return [];
+  }
+}
+
+/* 랭킹을 브라우저에 저장한다. */
+function saveRanking(records) {
+  try {
+    localStorage.setItem(CONFIG.storageKey, JSON.stringify(records));
+  } catch (error) {
+    alert("기록을 저장하지 못했어요. 브라우저 저장 공간을 확인해 주세요.");
+  }
+}
+
+/* 랭킹 정렬 기준: 정확도 높은 순 → 평균 반응 시간 빠른 순 → 먼저 기록한 순 */
+function compareRecords(a, b) {
+  return b.accuracy - a.accuracy ||
+         a.average - b.average ||
+         a.date - b.date;
+}
+
+/* 상위 5개 기록을 화면에 표시한다. */
+function renderRanking() {
+  const records = loadRanking().sort(compareRecords).slice(0, 5);
+
+  [document.getElementById("startRanking"),
+   document.getElementById("resultRanking")].forEach(list => {
+    list.replaceChildren();
+
+    if (records.length === 0) {
+      const item = document.createElement("li");
+      item.className = "empty-ranking";
+      item.textContent = "아직 기록이 없어요. 첫 기록을 만들어 보세요!";
+      list.appendChild(item);
+      return;
+    }
+
+    records.forEach((record, index) => {
+      const item = document.createElement("li");
+      item.textContent =
+        `${index + 1}위 - ${record.name}: ${record.accuracy.toFixed(1)}% (명중 ${record.hits}개)`;
+      list.appendChild(item);
+    });
+  });
+}
+
+/* 사용자가 확인한 뒤 랭킹을 초기화한다. */
+function resetRanking() {
+  if (!confirm("저장된 랭킹을 모두 삭제할까요?")) return;
+
+  try {
+    localStorage.removeItem(CONFIG.storageKey);
+    renderRanking();
+    alert("랭킹을 초기화했어요.");
+  } catch (error) {
+    alert("랭킹 초기화에 실패했어요.");
+  }
+}
+
+/*
+==================================================
+시작 화면
+==================================================
+*/
+
+/* CONFIG.grade 값으로 등급 기준표를 만든다. */
+function renderGradeGuide() {
+  const g = CONFIG.grade;
+  const rows = [
+    `S등급: 정확도 ${g.S}% 이상`,
+    `A등급: 정확도 ${g.A}% 이상`,
+    `B등급: 정확도 ${g.B}% 이상`,
+    "C등급: 위 기준 미충족"
+  ];
+
+  const box = document.getElementById("gradeRows");
+  box.replaceChildren();
+
+  rows.forEach(text => {
+    const row = document.createElement("div");
+    row.className = "grade-row";
+    row.textContent = text;
+    box.appendChild(row);
+  });
+
+  document.getElementById("startHint").textContent =
+    `총 ${CONFIG.targetCount}개 · 마우스와 터치 모두 가능`;
+}
+
+/* 시작 화면으로 돌아간다. */
+function showStart() {
+  gameActive = false;
+  stopTimers();
+  playfield.replaceChildren();
+  hideAllScreens();
+  startScreen.classList.remove("hidden");
+  renderRanking();
+}
+
+/*
+==================================================
+게임 진행 (두더지 방식)
+표적이 나타난다 → 제한 시간 안에 누르면 명중 / 못 누르면 놓침
+→ 잠깐 쉬었다가 다음 표적
+==================================================
+*/
+
+/* min~max 사이 무작위 값을 돌려준다. */
+function randomBetween(range) {
+  return range[0] + Math.random() * (range[1] - range[0]);
+}
+
+/* weight(가중치)에 따라 패턴 하나를 무작위로 고른다. */
+function pickPattern() {
+  const total = CONFIG.patterns.reduce((sum, p) => sum + p.weight, 0);
+  let roll = Math.random() * total;
+
+  for (const pattern of CONFIG.patterns) {
+    roll -= pattern.weight;
+    if (roll < 0) return pattern;
+  }
+  return CONFIG.patterns[0];
+}
+
+/* 화면 위쪽의 놓침/헛클릭 숫자와 진행 바를 갱신한다. */
+function updateStatus() {
+  document.getElementById("missCounter").textContent =
+    `놓침 ${missedTargets} · 헛클릭 ${wrongClicks}`;
+  document.getElementById("hitCounter").textContent = hits;
+  document.getElementById("progressBar").style.width =
+    `${targetIndex / CONFIG.targetCount * 100}%`;
+}
+
+/* 게임을 초기화하고 시작한다. */
+function startGame() {
+  playerName = nicknameInput.value.trim().slice(0, 12) || "참가자";
+  targetIndex = 0;
+  hits = 0;
+  missedTargets = 0;
+  wrongClicks = 0;
+  reactionTimes = [];
+  flashSpawned = 0;
+  gameActive = true;
+  stopTimers();
+
+  hideAllScreens();
+  gameScreen.classList.remove("hidden");
+  playfield.replaceChildren();
+
+  document.getElementById("gameCounter").textContent =
+    `표적 1 / ${CONFIG.targetCount}`;
+  updateStatus();
+
+  scheduleNextTarget();
+}
+
+/* 패턴에 맞는 대기 시간 뒤에 다음 표적을 띄우도록 예약한다. */
+function scheduleNextTarget() {
+  if (!gameActive) return;
+
+  if (targetIndex >= CONFIG.targetCount) {
+    showResult();
+    return;
+  }
+
+  const pattern = pickPattern();
+  spawnTimer = setTimeout(() => spawnTarget(pattern), randomBetween(pattern.delay));
+}
+
+/* 표적을 무작위 위치에 띄우고, 제한 시간이 지나면 사라지게 한다. */
+function spawnTarget(pattern) {
+  if (!gameActive) return;
+
+  document.getElementById("gameCounter").textContent =
+    `표적 ${targetIndex + 1} / ${CONFIG.targetCount}`;
+
+  const target = document.createElement("button");
+  target.type = "button";
+  target.className = "target";
+  target.setAttribute("aria-label", "빨간 표적 맞히기");
+  target.style.setProperty("--target-size", `${CONFIG.targetSize}px`);
+  target.style.setProperty("--fade-in", `${pattern.fadeIn}ms`);
+
+  const width = playfield.clientWidth;
+  const height = playfield.clientHeight;
+  const marginX = Math.min(CONFIG.targetSize / 2 + 8, width / 2);
+  const marginY = Math.min(CONFIG.targetSize / 2 + 8, height / 2);
+
+  const x = marginX + Math.random() * Math.max(0, width - marginX * 2);
+  const y = marginY + Math.random() * Math.max(0, height - marginY * 2);
+
+  target.style.left = `${x}px`;
+  target.style.top = `${y}px`;
+
+  target.addEventListener("click", event => {
+    event.stopPropagation();
+    handleHit(target);
+  });
+
+  playfield.replaceChildren(target);
+  targetShownAt = performance.now();
+
+  // 제한 시간이 지나면 놓친 것으로 처리한다.
+  const visibleMs = randomBetween(pattern.visible);
+  hideTimer = setTimeout(handleMiss, visibleMs);
+
+  // 섬광탄이 터진 상태라면, 이 표적이 사라지기 직전에 화면이 돌아오게 예약한다.
+  if (flashActive && !flashReleaseScheduled) {
+    flashReleaseScheduled = true;
+    whiteTimer = setTimeout(
+      releaseFlash,
+      Math.max(0, visibleMs - CONFIG.flash.returnBefore)
+    );
+  }
+
+  maybeSpawnFlashbang(x, y);
+}
+
+/* 가끔 표적 옆에 섬광탄(함정)을 같이 띄운다. 표적과 겹치지 않는 위치를 고른다. */
+function maybeSpawnFlashbang(targetX, targetY) {
+  const f = CONFIG.flash;
+
+  if (flashActive) return;                                // 이미 하얀 상태면 안 나옴
+  if (flashSpawned >= f.maxCount) return;                 // 최대 개수 초과
+  if (targetIndex >= CONFIG.targetCount - 1) return;      // 마지막 표적에는 안 나옴
+  if (Math.random() >= f.chance) return;
+
+  const width = playfield.clientWidth;
+  const height = playfield.clientHeight;
+  const margin = Math.min(f.size / 2 + 8, width / 2, height / 2);
+  const minDistance = (CONFIG.targetSize + f.size) / 2 + 12;
+
+  // 표적과 충분히 떨어진 위치를 최대 30번 찾아본다.
+  for (let i = 0; i < 30; i++) {
+    const x = margin + Math.random() * Math.max(0, width - margin * 2);
+    const y = margin + Math.random() * Math.max(0, height - margin * 2);
+
+    if (Math.hypot(x - targetX, y - targetY) < minDistance) continue;
+
+    const bomb = document.createElement("button");
+    bomb.type = "button";
+    bomb.className = "flashbang";
+    bomb.textContent = "⚡";
+    bomb.setAttribute("aria-label", "섬광탄 (누르면 화면이 하얘져요)");
+    bomb.style.setProperty("--flash-size", `${f.size}px`);
+    bomb.style.left = `${x}px`;
+    bomb.style.top = `${y}px`;
+
+    bomb.addEventListener("click", event => {
+      event.stopPropagation();
+      triggerFlash(bomb);
+    });
+
+    playfield.appendChild(bomb);
+    flashSpawned++;
+    return;
+  }
+}
+
+/* 표적을 맞혔을 때 처리한다. */
+function handleHit(target) {
+  if (!gameActive || !target.isConnected) return;
+
+  clearTimeout(hideTimer);
+  reactionTimes.push(performance.now() - targetShownAt);
+  hits++;
+  targetIndex++;
+
+  playfield.replaceChildren();
+  updateStatus();
+  scheduleNextTarget();
+}
+
+/* 표적이 사라질 때까지 못 눌렀을 때 처리한다. */
+function handleMiss() {
+  if (!gameActive) return;
+
+  missedTargets++;
+  targetIndex++;
+
+  playfield.replaceChildren();
+  updateStatus();
+
+  // 놓쳤다는 신호로 테두리를 잠깐 빨갛게 한다.
+  playfield.classList.add("miss-flash");
+  flashTimer = setTimeout(() => playfield.classList.remove("miss-flash"), 200);
+
+  scheduleNextTarget();
+}
+
+/* 표적이 아닌 곳을 누르면 헛클릭으로 기록한다. */
+playfield.addEventListener("click", event => {
+  if (!gameActive) return;
+  if (event.target.closest(".target")) return;
+
+  wrongClicks++;
+  updateStatus();
+});
+
+/*
+==================================================
+결과 (정확도만으로 등급 판정)
+==================================================
+*/
+
+/* 정확도에 맞는 등급을 돌려준다. */
+function getGrade(accuracy) {
+  if (accuracy >= CONFIG.grade.S) return "S";
+  if (accuracy >= CONFIG.grade.A) return "A";
+  if (accuracy >= CONFIG.grade.B) return "B";
+  return "C";
+}
+
+/* 게임 종료 후 결과를 보여 주고 랭킹에 기록한다. */
+function showResult() {
+  gameActive = false;
+  stopTimers();
+  playfield.replaceChildren();
+  playfield.classList.remove("miss-flash");
+
+  // 정확도 = 명중 ÷ (전체 표적 + 빈 곳 클릭). 곱셈을 먼저 해서 소수 오차를 줄인다.
+  const accuracy = hits * 100 / (CONFIG.targetCount + wrongClicks);
+  const grade = getGrade(accuracy);
+
+  const titles = {
+    S: "두더지 사냥 마스터!",
+    A: "빠르고 정확해요!",
+    B: "좋은 도전이에요!",
+    C: "다시 도전해 봐요!"
+  };
+
+  const g = CONFIG.grade;
+  const explanations = {
+    S: `S등급 달성! 정확도 ${g.S}% 이상을 충족했어요.`,
+    A: `A등급 달성! S등급은 정확도 ${g.S}% 이상이 필요해요.`,
+    B: `B등급 달성! A등급은 정확도 ${g.A}% 이상이 필요해요.`,
+    C: `B등급은 정확도 ${g.B}% 이상이면 받을 수 있어요.`
+  };
+
+  document.getElementById("resultGrade").textContent = grade;
+  document.getElementById("resultName").textContent = `${playerName}님의 결과`;
+  document.getElementById("resultTitle").textContent = titles[grade];
+  document.getElementById("accuracy").textContent = accuracy.toFixed(1);
+  document.getElementById("finalHits").textContent = hits;
+  document.getElementById("finalMissed").textContent = missedTargets;
+  document.getElementById("finalWrong").textContent = wrongClicks;
+  document.getElementById("gradeExplanation").textContent = explanations[grade];
+
+  // 랭킹 기록. 명중이 하나도 없으면 평균 반응 시간은 아주 큰 값으로 둔다.
+  const average = reactionTimes.length > 0
+    ? reactionTimes.reduce((sum, time) => sum + time, 0) / reactionTimes.length
+    : 999999;
+
+  const records = loadRanking();
+
+  records.push({
+    name: playerName,
+    accuracy,
+    hits,
+    wrongClicks,
+    average,
+    date: Date.now()
+  });
+
+  records.sort(compareRecords);
+  records.splice(5);
+
+  saveRanking(records);
+
+  hideAllScreens();
+  resultScreen.classList.remove("hidden");
+  renderRanking();
+}
+
+/*
+==================================================
+시작
+==================================================
+*/
+
+/* 버튼 기능을 연결한다. */
+document.getElementById("startButton").addEventListener("click", startGame);
+document.getElementById("retryButton").addEventListener("click", showStart);
+
+document.querySelectorAll("[data-reset]").forEach(button => {
+  button.addEventListener("click", resetRanking);
+});
+
+/* 처음 실행할 때 기준표와 랭킹을 설정한다. */
+renderGradeGuide();
+showStart();
+</script>
+</body>
+</html>
