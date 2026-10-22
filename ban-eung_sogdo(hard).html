@@ -16,6 +16,10 @@ grade 안의 숫자는 "정확도 몇 % 이상이면 그 등급인가"입니다.
 속도와 시간 조건은 등급에 쓰지 않습니다.
 (시작 화면의 기준표와 결과 문구는 이 숫자를 읽어서 자동으로 만들어집니다.)
 
+[포인트]
+points 안의 숫자는 등급별로 주는 포인트입니다. S+A+B+C 합계가 1000점이 되도록
+나눈 값이고, 시작 화면 기준표와 결과 화면에 자동으로 표시됩니다.
+
 [표적 패턴]
 patterns의 각 항목이 두더지처럼 튀어나오는 방식 하나입니다.
   delay   : 이전 표적이 사라진 뒤 다음 표적이 나오기까지 대기 시간 [최소, 최대] ms
@@ -33,6 +37,14 @@ const CONFIG = {
     S: 100,
     A: 80,
     B: 60
+  },
+
+  // 등급별 포인트 (S/A/B/C 합계 1000점, 비율 50:30:15:5)  ← 임시 값, 조정 가능
+  points: {
+    S: 500,
+    A: 300,
+    B: 150,
+    C: 50
   },
 
   // 표적 등장 패턴
@@ -160,6 +172,28 @@ h1 {
   border-radius: 12px;
   background: #fffdf8;
   font-size: 18px;
+}
+
+/* 학번/이름 입력 오류 문구 */
+.form-error {
+  min-height: 20px;
+  margin: -6px 0 10px;
+  color: #c0392b;
+  font-size: 14px;
+  font-weight: bold;
+  text-align: left;
+}
+
+/* 결과 화면의 획득 포인트 카드 */
+.points-card {
+  margin-bottom: 14px;
+  padding: 16px;
+  border: 2px solid var(--accent);
+  border-radius: 14px;
+  background: #fff5df;
+  color: #a85c0b;
+  font-size: 22px;
+  font-weight: 900;
 }
 
 .primary-btn {
@@ -462,15 +496,28 @@ footer {
         ⚠️ 주황색 번개(⚡) 섬광탄을 누르면 화면이 하얘져요. 조심하세요!
       </p>
 
-      <label class="name-label" for="nickname">닉네임 (선택)</label>
+      <label class="name-label" for="studentId">학번</label>
       <input
-        id="nickname"
+        id="studentId"
         class="name-input"
         type="text"
-        maxlength="12"
-        placeholder="예: 반응속도왕"
+        inputmode="numeric"
+        maxlength="8"
+        placeholder="예: 10621"
         autocomplete="off"
       >
+
+      <label class="name-label" for="playerNameInput">이름</label>
+      <input
+        id="playerNameInput"
+        class="name-input"
+        type="text"
+        maxlength="10"
+        placeholder="예: 천성권"
+        autocomplete="off"
+      >
+
+      <p id="formError" class="form-error" role="alert"></p>
 
       <button id="startButton" class="primary-btn" type="button">
         게임 시작!
@@ -487,6 +534,7 @@ footer {
         정확도 = 명중한 표적 ÷ (전체 표적 + 빈 곳 클릭)<br>
         표적을 놓치거나 빈 곳을 누르면 정확도가 내려가요.
       </p>
+      <p class="hint" id="pointHint"></p>
     </section>
 
     <!-- 랭킹 -->
@@ -548,6 +596,8 @@ footer {
         </div>
       </div>
 
+      <div id="pointsEarned" class="points-card"></div>
+
       <p id="gradeExplanation" class="message"></p>
 
       <p class="message">
@@ -583,10 +633,13 @@ footer {
 const startScreen = document.getElementById("startScreen");
 const gameScreen = document.getElementById("gameScreen");
 const resultScreen = document.getElementById("resultScreen");
-const nicknameInput = document.getElementById("nickname");
+const studentIdInput = document.getElementById("studentId");
+const nameInput = document.getElementById("playerNameInput");
+const formError = document.getElementById("formError");
 const playfield = document.getElementById("playfield");
 
-let playerName = "참가자";
+let playerName = "";
+let playerId = "";
 let targetIndex = 0;      // 처리가 끝난 표적 수 (명중 + 놓침)
 let hits = 0;             // 명중 수
 let missedTargets = 0;    // 사라질 때까지 못 누른 표적 수
@@ -733,12 +786,17 @@ function resetRanking() {
 /* CONFIG.grade 값으로 등급 기준표를 만든다. */
 function renderGradeGuide() {
   const g = CONFIG.grade;
+  const p = CONFIG.points;
   const rows = [
-    `S등급: 정확도 ${g.S}% 이상`,
-    `A등급: 정확도 ${g.A}% 이상`,
-    `B등급: 정확도 ${g.B}% 이상`,
-    "C등급: 위 기준 미충족"
+    `S등급: 정확도 ${g.S}% 이상 · ${p.S}점`,
+    `A등급: 정확도 ${g.A}% 이상 · ${p.A}점`,
+    `B등급: 정확도 ${g.B}% 이상 · ${p.B}점`,
+    `C등급: 위 기준 미충족 · ${p.C}점`
   ];
+
+  const pointTotal = p.S + p.A + p.B + p.C;
+  document.getElementById("pointHint").textContent =
+    `등급별 포인트 합계: ${pointTotal}점`;
 
   const box = document.getElementById("gradeRows");
   box.replaceChildren();
@@ -757,6 +815,12 @@ function renderGradeGuide() {
 /* 시작 화면으로 돌아간다. */
 function showStart() {
   gameActive = false;
+
+  // 다음 참가자가 자기 학번과 이름을 새로 입력하도록 비운다.
+  studentIdInput.value = "";
+  nameInput.value = "";
+  formError.textContent = "";
+
   stopTimers();
   playfield.replaceChildren();
   hideAllScreens();
@@ -800,7 +864,26 @@ function updateStatus() {
 
 /* 게임을 초기화하고 시작한다. */
 function startGame() {
-  playerName = nicknameInput.value.trim().slice(0, 12) || "참가자";
+  const idValue = studentIdInput.value.trim();
+  const nameValue = nameInput.value.trim();
+
+  // 학번과 이름을 올바르게 입력해야 시작할 수 있다.
+  if (!idValue || !nameValue) {
+    formError.textContent = "학번과 이름을 모두 입력해 주세요.";
+    (idValue ? nameInput : studentIdInput).focus();
+    return;
+  }
+
+  if (!/^\d+$/.test(idValue)) {
+    formError.textContent = "학번은 숫자만 입력해 주세요.";
+    studentIdInput.focus();
+    return;
+  }
+
+  formError.textContent = "";
+  playerId = idValue;
+  playerName = nameValue.slice(0, 10);
+
   targetIndex = 0;
   hits = 0;
   missedTargets = 0;
@@ -1005,13 +1088,19 @@ function showResult() {
   };
 
   document.getElementById("resultGrade").textContent = grade;
-  document.getElementById("resultName").textContent = `${playerName}님의 결과`;
+  document.getElementById("resultName").textContent =
+    `${playerId} ${playerName}님의 결과`;
   document.getElementById("resultTitle").textContent = titles[grade];
   document.getElementById("accuracy").textContent = accuracy.toFixed(1);
   document.getElementById("finalHits").textContent = hits;
   document.getElementById("finalMissed").textContent = missedTargets;
   document.getElementById("finalWrong").textContent = wrongClicks;
   document.getElementById("gradeExplanation").textContent = explanations[grade];
+
+  // 등급에 맞는 포인트를 계산해서 보여 준다.
+  const points = CONFIG.points[grade];
+  document.getElementById("pointsEarned").textContent =
+    `🎁 획득 포인트: ${points}점`;
 
   // 랭킹 기록. 명중이 하나도 없으면 평균 반응 시간은 아주 큰 값으로 둔다.
   const average = reactionTimes.length > 0
@@ -1021,7 +1110,10 @@ function showResult() {
   const records = loadRanking();
 
   records.push({
+    studentId: playerId,
     name: playerName,
+    grade,
+    points,
     accuracy,
     hits,
     wrongClicks,
